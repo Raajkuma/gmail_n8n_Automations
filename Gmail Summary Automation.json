@@ -1,0 +1,213 @@
+{
+  "name": "Gmail Summary Automation",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "d78dd9dd-5d65-4030-aec0-c6c4aab4f617",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 5,
+        "filters": {
+          "readStatus": "unread"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "c3b2ceba-4905-4d14-b353-3128bc9e7de5",
+      "name": "Get many messages",
+      "webhookId": "313488fb-e9bc-47c0-b924-9851fe19d184",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GLORIr8pSpxk7NYe",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are my email assistant. You can consolidate the mails I received and give me a summary of it.\n\nReceived mails:\n{{ $json.result }}\n\nExpected Output Format (JSON):\n{\nsubject: Consolidated Mail Update\ntext: <consolidated generated message>\n}\n\nINSTRUCTION:\n- Each mail summary SHOULD be in added with bulletin. \n- include proper markdown format for text field.\n- since you were consolidating emails you can mension from whom we got this what information they needed/ given. \n",
+        "hasOutputParser": true,
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        704,
+        0
+      ],
+      "id": "2df71eb0-496f-476e-a081-f4c8352ccd79",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "model": "docker.io/ai/qwen3-vl:2B-BF16",
+        "options": {
+          "think": true,
+          "temperature": 0.9
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        704,
+        192
+      ],
+      "id": "983dfb0f-af1c-4587-a268-e2d337f94b8a",
+      "name": "Ollama Chat Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "nOWUVdTKuenO2QS3",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let consolidatedText = \"\";\n\nfor (const item of $input.all()) {\n  consolidatedText += `-----\\nsender: \"${item.json.From}\"\\nbody: \"${item.json.snippet}\"\\n`;\n}\n\n// Return as a single item containing the combined text\nreturn [{ json: { result: consolidatedText.trim() } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "8656502d-1592-40d8-8f20-587940e85c4d",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "sendTo": "kumar783111raaj@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1232,
+        0
+      ],
+      "id": "1bf927f1-ef5b-452a-bf1e-597e71fb31fe",
+      "name": "Send a message",
+      "webhookId": "14651eec-a755-4a24-b3ae-8c7447f5695a",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GLORIr8pSpxk7NYe",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Get incoming item\nconst item = $input.first().json;\n\nlet rawText = \"\";\nlet emailSubject = \"Consolidated Mail Update\";\n\n// Handle case where the text field contains a stringified JSON object\ntry {\n  if (typeof item.text === 'string' && item.text.trim().startsWith('{')) {\n    const parsed = JSON.parse(item.text);\n    rawText = parsed.text || \"\";\n    emailSubject = parsed.subject || emailSubject;\n  } else {\n    rawText = item.text || \"\";\n    emailSubject = item.subject || emailSubject;\n  }\n} catch (e) {\n  rawText = item.text || \"\";\n  emailSubject = item.subject || emailSubject;\n}\n\n// 2. Clean up literal escaped newlines if present\nrawText = rawText.replace(/\\\\n/g, '\\n');\n\n// 3. Split entries by bullets or line breaks to separate each sender\n// This matches patterns like \"• INDmoney:\" or similar bulleted sections\nconst entries = rawText\n  .split(/(?=•|\\n\\s*•)/)\n  .map(entry => entry.trim())\n  .filter(entry => entry.length > 0);\n\n// 4. Format each sender's message into its own distinct card/box\nconst formattedEntries = entries.map(entry => {\n  // Remove the bullet character itself since we are using structured cards\n  let cleaned = entry.replace(/^[•\\-\\*]\\s*/, '');\n  \n  // Convert Markdown bold (**text**) to HTML bold tags (<b>text</b>)\n  cleaned = cleaned.replace(/\\*\\*(.*?)\\*\\*/g, '<b>$1</b>');\n\n  return `\n    <div style=\"background-color: #f8f9fa; border-left: 4px solid #0066cc; padding: 14px 16px; margin-bottom: 12px; border-radius: 4px;\">\n      <div style=\"font-size: 14px; color: #333333; line-height: 1.6;\">\n        ${cleaned}\n      </div>\n    </div>\n  `;\n}).join('');\n\n// 5. Build full HTML document body without repeating the header title inside content\nconst htmlBody = `\n<!DOCTYPE html>\n<html>\n<body style=\"font-family: Arial, sans-serif; background-color: #f4f6f8; padding: 20px; margin: 0;\">\n  <div style=\"max-width: 600px; background: #ffffff; padding: 24px; border-radius: 8px; border: 1px solid #e0e0e0; margin: 0 auto;\">\n    <h2 style=\"color: #1a1a1a; margin-top: 0; padding-bottom: 12px; border-bottom: 2px solid #eaeaea; font-size: 20px;\">\n      ${emailSubject}\n    </h2>\n    <div style=\"margin-top: 20px;\">\n      ${formattedEntries}\n    </div>\n  </div>\n</body>\n</html>\n`;\n\n// 6. Return output for n8n email node\nreturn [{\n  json: {\n    subject: emailSubject,\n    html: htmlBody\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        0
+      ],
+      "id": "1e75d633-fc58-4eae-9869-fc33bfa2f7b1",
+      "name": "Code in JavaScript1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get many messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many messages": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "1c556177-227f-4ec6-9c4a-d23c1b03117e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6bf3883745d5651b7d2065e997eedea7ff7e87b443d4aa6495bc92c38c0d60cd"
+  },
+  "nodeGroups": [],
+  "id": "STzvikQCjNIJvijz",
+  "tags": []
+}
