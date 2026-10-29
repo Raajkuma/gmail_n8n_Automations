@@ -6,7 +6,7 @@ An automated n8n workflow that fetches messages from Gmail, processes and transf
 
 The workflow operates in a sequential pipeline consisting of trigger, ingestion, transformation, AI processing, and dispatch stages.
 
-![n8n Workflow Screenshot](screenshot.png)
+![n8n Workflow Screenshot](Screenshot.png)
 
 ## 🚀 Workflow Overview & Step-by-Step Breakdown
 
